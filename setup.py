@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 from setuptools import setup
@@ -9,11 +10,50 @@ TRUTHY = {"1", "true", "yes", "on"}
 DEFAULT_CUSTOM_KERNEL_DEPLOYMENT_TARGET = "15.0"
 
 
+def _metal_compiler_usable() -> bool:
+    """Whether `metal` can actually run, not merely be located.
+
+    Since Xcode 26 the Metal toolchain is a separately downloaded
+    component: `xcrun --find metal` resolves a path while invoking the
+    tool fails with "cannot execute tool 'metal' due to missing Metal
+    Toolchain". Only running it distinguishes the two.
+    """
+    try:
+        completed = subprocess.run(
+            ["xcrun", "metal", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
 def _with_custom_kernel() -> bool:
+    """Custom kernels are opt-out: build them wherever Metal can.
+
+    The fallback paths are far slower (roughly 30x on GLM-5.2 prefill),
+    so silently shipping them is the worse default. An explicit choice
+    always wins over detection -- OMLX_WITH_CUSTOM_KERNEL=0 opts out --
+    and detection only decides when nothing was specified.
+    """
     if CUSTOM_KERNEL_FLAG in sys.argv:
         sys.argv.remove(CUSTOM_KERNEL_FLAG)
         return True
-    return os.environ.get("OMLX_WITH_CUSTOM_KERNEL", "").strip().lower() in TRUTHY
+    requested = os.environ.get("OMLX_WITH_CUSTOM_KERNEL", "").strip().lower()
+    if requested:
+        return requested in TRUTHY
+    if _metal_compiler_usable():
+        return True
+    print(
+        "omlx: no usable Metal compiler, building without native custom "
+        "kernels; the affected model families will use much slower "
+        "fallback paths. Install full Xcode plus the Metal toolchain "
+        "(xcodebuild -downloadComponent MetalToolchain) to enable them.",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _custom_kernel_build_kwargs() -> dict:

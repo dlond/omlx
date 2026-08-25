@@ -85,7 +85,11 @@ if [ $# -gt 0 ]; then
 fi
 
 BARE=0
-WITH_CUSTOM_KERNEL="${OMLX_WITH_CUSTOM_KERNEL:-0}"
+# Custom kernels are opt-out: build and bundle them wherever Metal can. An
+# explicit choice always wins (OMLX_WITH_CUSTOM_KERNEL, --with-custom-kernel);
+# detection only decides when nothing was specified.
+WITH_CUSTOM_KERNEL="${OMLX_WITH_CUSTOM_KERNEL:-auto}"
+CUSTOM_KERNEL_AUTO_OFF=0
 REBUILD_DONOR=auto    # auto | force | never
 for arg in "$@"; do
     case "$arg" in
@@ -96,6 +100,17 @@ for arg in "$@"; do
         *) echo "error: unknown flag '$arg'" >&2; exit 2 ;;
     esac
 done
+if [ "$WITH_CUSTOM_KERNEL" = "auto" ]; then
+    # Gate on the compiler running rather than on `xcrun --find metal`
+    # resolving: since Xcode 26 the Metal toolchain is a separate download, so
+    # the tool resolves while invoking it fails.
+    if xcrun metal --version >/dev/null 2>&1; then
+        WITH_CUSTOM_KERNEL=1
+    else
+        WITH_CUSTOM_KERNEL=0
+        CUSTOM_KERNEL_AUTO_OFF=1
+    fi
+fi
 case "$(echo "$WITH_CUSTOM_KERNEL" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on) WITH_CUSTOM_KERNEL=1 ;;
     *) WITH_CUSTOM_KERNEL=0 ;;
@@ -550,6 +565,9 @@ fi
 
 if [ "$WITH_CUSTOM_KERNEL" = "1" ]; then
     _build_custom_kernels
+elif [ "$CUSTOM_KERNEL_AUTO_OFF" = "1" ]; then
+    # Never downgrade silently: this bundle will use the slower fallback paths.
+    warn "no usable Metal compiler — bundling without native custom kernels; affected models will use much slower fallback paths. Install it with: sudo xcodebuild -downloadComponent MetalToolchain"
 fi
 
 log "Copying omlx package from source tree…"
