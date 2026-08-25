@@ -94,6 +94,16 @@ dependencies = [
     "httpx>=0.27.0,<1",
     # SOCKS proxy support (used by httpx via huggingface-hub)
     "socksio>=1.0.0",
+    # MCP was an extra, but it was already default everywhere that matters:
+    # the venvstacks bundle, both dev groups, and CI all pulled it in, leaving
+    # only bare source and Homebrew installs without it -- which is why the
+    # README had to tell Homebrew users to pip install it by hand. Promoting
+    # it costs ~3 MB across 8 small pure-Python packages and changes no
+    # behaviour: every mcp import is lazy, and the feature turns on only via
+    # OMLX_MCP_CONFIG or --mcp-config, never by being importable.
+    # Note this brings httpx2 alongside the httpx pin above; separate package
+    # names, so they coexist rather than conflict.
+    "mcp>=2.0.0,<3",
     # DuckDuckGo backend for the chat web_search tool. Pinned to 9.14.1:
     # the last release inside packaging/venvstacks.toml's exclude-newer
     # cutoff (2026-04-23), and the last with the minimal dep tree
@@ -145,9 +155,10 @@ grammar = [
     "xgrammar==0.2.3",
     "apache-tvm-ffi==0.1.11",
 ]
-mcp = [
-    "mcp>=2.0.0,<3",
-]
+# Retained but empty: mcp is a core dependency now. Kept so that existing
+# `pip install "omlx[mcp]"` invocations -- in scripts, docs and muscle memory
+# -- keep working silently instead of warning that the extra does not exist.
+mcp = []
 modelscope = [
     "modelscope>=1.10.0",
 ]
@@ -181,7 +192,6 @@ paroquant = [
 # git-pinned mlx-lm (v0.31.3). build.py installs mlx-audio + paroquant
 # separately via --no-deps post-resolution.
 bundle = [
-    "mcp>=2.0.0,<3",
     "modelscope>=1.10.0",
     # mlx-audio[tts,stt,sts] transitives:
     "scipy>=1.11.0",
@@ -207,7 +217,6 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
-    "mcp>=2.0.0,<3",
     "venvstacks>=0.7.0",
     # The torch-stub smoke test (tests/test_torch_stub.py) gates
     # xgrammar / tvm-ffi version bumps. It skips when these aren't
@@ -231,7 +240,6 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
-    "mcp>=2.0.0,<3",
     "venvstacks>=0.7.0",
     "xgrammar==0.2.3",
     "apache-tvm-ffi==0.1.11",
