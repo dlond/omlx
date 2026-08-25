@@ -86,29 +86,31 @@ cd omlx
 pip install -e .          # Core only
 pip install -e ".[mcp]"   # With MCP (Model Context Protocol) support
 
-# GLM-5.2 / MiniMax M3 / Qwen3.5 native custom kernels (strongly recommended
-# if you serve those families -- see note below)
-OMLX_WITH_CUSTOM_KERNEL=1 pip install -e .
+# The GLM-5.2 / MiniMax M3 / Qwen3.5 native custom kernels are built
+# automatically when a working Metal compiler is present -- see note below.
+# To skip them (faster builds, much slower inference on those families):
+OMLX_WITH_CUSTOM_KERNEL=0 pip install -e .
 ```
 
 Or with [uv](https://docs.astral.sh/uv/), which provisions a matching interpreter
 and virtualenv for you:
 
 ```bash
-uv sync                            # Core only
+uv sync                            # Core only (with custom kernels if Metal is available)
 uv sync --extra mcp                # With MCP support
-OMLX_WITH_CUSTOM_KERNEL=1 uv sync  # With native custom kernels
+OMLX_WITH_CUSTOM_KERNEL=0 uv sync  # Without native custom kernels
 
 uv run omlx --help                 # Run without activating the venv
 ```
 
 Requires macOS 15.0+ (Sequoia), Python 3.11–3.13, and Apple Silicon (M1/M2/M3/M4/M5).
 
-> **Note on native custom kernels:** a plain `pip install -e .` does NOT build
-> them, and the affected model families then silently fall back to much slower
-> generic paths -- for GLM-5.2 the fused DSA prefill is roughly 30x faster with
-> the kernels (measured 845 vs ~29 tok/s on an M3 Ultra), and the fallback also
-> uses more memory (#2137). Building them requires the Metal compiler, which
+> **Note on native custom kernels:** these are built by default whenever the
+> Metal compiler can run, and skipped with a warning when it cannot. Without
+> them the affected model families fall back to much slower generic paths --
+> for GLM-5.2 the fused DSA prefill is roughly 30x faster with the kernels
+> (measured 845 vs ~29 tok/s on an M3 Ultra), and the fallback also uses more
+> memory (#2137). Building them requires the Metal compiler, which
 > Command Line Tools alone do not provide (`xcrun: error: unable to find utility
 > "metal"`): install full Xcode, or use the official DMG which ships the kernels
 > precompiled. Homebrew can build them with `brew install jundot/omlx/omlx --HEAD
@@ -407,6 +409,29 @@ FastAPI Server (OpenAI / Anthropic API)
 
 ## Development
 
+### Project policies
+
+**Native custom kernels are opt-out.** Builds enable them wherever a working
+Metal compiler exists, rather than requiring callers to remember
+`OMLX_WITH_CUSTOM_KERNEL=1`; the fallback paths are slow enough (roughly 30x on
+GLM-5.2 prefill) that silently shipping them is the worse default. Set
+`OMLX_WITH_CUSTOM_KERNEL=0` to opt out — an explicit choice always wins, and
+detection only decides when nothing was specified.
+
+The rule lives in `setup.py` and `apps/omlx-mac/Scripts/build.sh`, the two
+places that act on it, so it applies to every install path. It is deliberately
+not implemented in the [Nix](#nix) shell: that shell is optional, and policy
+kept there would make the same command produce different artifacts depending on
+whether the caller happened to use it.
+
+**The macOS app requires Python 3.11.** The bundle ships the venvstacks
+`cpython-3.11` runtime, and CPython locates extension modules by an ABI tag
+baked into the filename, so kernels built by any other minor version are
+invisible to it — they do not fail loudly, they simply never load. Build
+`apps/omlx-mac` from a 3.11 environment. This constrains the *bundle build*
+only: `requires-python` stays 3.11–3.13, and from-source or Homebrew installs
+on 3.12/3.13 get working custom kernels as usual.
+
 ### CLI Server
 
 ```bash
@@ -433,10 +458,12 @@ nix develop
 ```
 
 Native compilation deliberately stays with the host Xcode toolchain, since
-nixpkgs ships no Metal compiler. The shell sets `OMLX_WITH_CUSTOM_KERNEL=1`
-when a working `metal` is found — requiring full Xcode plus the MetalToolchain
-component described under [From Source](#from-source) — and otherwise falls
-back to leaving it unset, reporting which mode it picked at startup.
+nixpkgs ships no Metal compiler — so the custom kernels still need full Xcode
+plus the MetalToolchain component described under
+[From Source](#from-source). The shell reports whether `metal` is usable on
+entry, but does not itself decide whether the kernels get built; that is
+project policy and lives in `setup.py` and the app build script, so it behaves
+the same with or without nix.
 
 ### macOS App
 
