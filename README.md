@@ -91,18 +91,40 @@ pip install -e ".[mcp]"   # With MCP (Model Context Protocol) support
 OMLX_WITH_CUSTOM_KERNEL=1 pip install -e .
 ```
 
+Or with [uv](https://docs.astral.sh/uv/), which provisions a matching interpreter
+and virtualenv for you:
+
+```bash
+uv sync                            # Core only
+uv sync --extra mcp                # With MCP support
+OMLX_WITH_CUSTOM_KERNEL=1 uv sync  # With native custom kernels
+
+uv run omlx --help                 # Run without activating the venv
+```
+
 Requires macOS 15.0+ (Sequoia), Python 3.11–3.13, and Apple Silicon (M1/M2/M3/M4/M5).
 
 > **Note on native custom kernels:** a plain `pip install -e .` does NOT build
 > them, and the affected model families then silently fall back to much slower
 > generic paths -- for GLM-5.2 the fused DSA prefill is roughly 30x faster with
 > the kernels (measured 845 vs ~29 tok/s on an M3 Ultra), and the fallback also
-> uses more memory (#2137). Building them requires the Metal toolchain, which
+> uses more memory (#2137). Building them requires the Metal compiler, which
 > Command Line Tools alone do not provide (`xcrun: error: unable to find utility
 > "metal"`): install full Xcode, or use the official DMG which ships the kernels
 > precompiled. Homebrew can build them with `brew install jundot/omlx/omlx --HEAD
-> --with-custom-kernel`, but that build also needs full Xcode. To verify your
-> install:
+> --with-custom-kernel`, but that build has the same Xcode requirement.
+>
+> **On Xcode 26+, full Xcode is necessary but no longer sufficient.** The Metal
+> toolchain moved out of the Xcode bundle into a separately downloaded component,
+> so `xcrun --find metal` resolves while the build still fails with `cannot
+> execute tool 'metal' due to missing Metal Toolchain`. Install it once with:
+>
+> ```bash
+> sudo xcodebuild -downloadComponent MetalToolchain
+> xcodebuild -showComponent MetalToolchain   # expect: Status: installed
+> ```
+>
+> To verify your install:
 >
 > ```bash
 > python -c "from omlx.custom_kernels import native_kernel_status; print(native_kernel_status())"
@@ -393,6 +415,28 @@ cd omlx
 pip install -e ".[dev]"
 pytest -m "not slow"
 ```
+
+With uv, using the PEP 735 `dev` dependency group:
+
+```bash
+uv sync --dev
+uv run pytest -m "not slow"
+```
+
+### Nix
+
+A flake ships an Apple Silicon dev shell with the Python-side toolchain (uv,
+cmake, git) pinned:
+
+```bash
+nix develop
+```
+
+Native compilation deliberately stays with the host Xcode toolchain, since
+nixpkgs ships no Metal compiler. The shell sets `OMLX_WITH_CUSTOM_KERNEL=1`
+when a working `metal` is found — requiring full Xcode plus the MetalToolchain
+component described under [From Source](#from-source) — and otherwise falls
+back to leaving it unset, reporting which mode it picked at startup.
 
 ### macOS App
 
