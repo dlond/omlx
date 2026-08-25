@@ -58,6 +58,7 @@ cover/
 # Environments
 .env
 .venv
+.direnv/
 env/
 venv/
 ENV/
