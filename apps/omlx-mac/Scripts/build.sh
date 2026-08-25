@@ -310,6 +310,37 @@ _validate_custom_kernel_deployment_target() {
     done
 }
 
+# The CPython version the staged .app actually runs, per the venvstacks
+# runtime layer. Extensions must carry this interpreter's ABI tag or the
+# bundle will never find them.
+_bundle_python_version() {
+    sed -n 's/^[[:space:]]*python_implementation[[:space:]]*=[[:space:]]*"cpython@\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' \
+        "$PACKAGING_DIR/venvstacks.toml" | head -1
+}
+
+# A wrong-ABI extension is not a failed import but an invisible one: CPython
+# joins the module name to each entry of EXTENSION_SUFFIXES, so
+# _ext.cpython-313-darwin.so simply is not a candidate under 3.11. The
+# metallib guards cannot see this — metallibs are version agnostic — so the
+# build would otherwise report success and ship kernels that never load.
+_validate_custom_kernel_abi_tag() {
+    local expected_version="$1"
+    local expected_tag="cpython-${expected_version//./}"
+    local dir path name
+    for dir in "${CUSTOM_KERNEL_DIRS[@]}"; do
+        for path in "$dir"/_ext*.so; do
+            [ -e "$path" ] || continue
+            name="$(basename "$path")"
+            case "$name" in
+                "_ext.$expected_tag-darwin.so" | _ext.abi3.so | _ext.so) ;;
+                *)
+                    die "custom kernel $path is built for the wrong Python ABI; the bundle runs $expected_version, so it would never be imported. Rebuild with a Python $expected_version interpreter (see .python-version)."
+                    ;;
+            esac
+        done
+    done
+}
+
 _check_custom_kernel_nanobind() {
     # setup.py build_ext runs without pip build isolation, so the pyproject
     # [build-system] nanobind pin is NOT enforced here — the kernels are
@@ -386,9 +417,22 @@ _build_custom_kernels() {
     local deployment_target
     local cmake_args
     local custom_kernel_pythonpath
+    local bundle_python
+    local builder_python
     deployment_target="$(_custom_kernel_deployment_target)"
     cmake_args="${CMAKE_ARGS:-}"
     custom_kernel_pythonpath="$(_custom_kernel_pythonpath)"
+
+    # Extensions are loaded by the bundle's venvstacks runtime, not by the
+    # interpreter that builds them. Nothing else reconciles the two, so a dev
+    # environment on any other minor version silently produces a bundle whose
+    # kernels can never load.
+    bundle_python="$(_bundle_python_version)"
+    [ -n "$bundle_python" ] \
+        || die "could not read the venvstacks runtime version from $PACKAGING_DIR/venvstacks.toml."
+    builder_python="$("$PYTHON_BIN" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    [ "$builder_python" = "$bundle_python" ] \
+        || die "PYTHON_BIN ($PYTHON_BIN) is Python $builder_python but the app bundle runs Python $bundle_python; extensions built here would be invisible to it. Use a Python $bundle_python environment (see .python-version) or set PYTHON_BIN to one."
 
     _check_custom_kernel_nanobind "$custom_kernel_pythonpath"
     log "Building optional native custom kernels (macOS deployment target $deployment_target)…"
@@ -420,6 +464,7 @@ _build_custom_kernels() {
         warn "macOS SDK < 26.2: building without the Qwen3.5 NAX metallib; M5 GPUs will use the classic kernels."
     fi
     _validate_custom_kernel_deployment_target "$deployment_target"
+    _validate_custom_kernel_abi_tag "$bundle_python"
     _check_custom_kernel_abi "$custom_kernel_pythonpath"
     ok "  + custom kernels ($deployment_target)"
 }
