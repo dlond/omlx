@@ -15,11 +15,21 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-14
+    # macos-15 is the project's floor (macOS 15.0+). macos-14 cannot build the
+    # native kernels at all, which went unnoticed while they were opt-in and so
+    # never built here.
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+
+    env:
+      # Explicit rather than detected. This job covers the Python; leaving the
+      # choice to detection would make CI's behaviour depend on undocumented
+      # runner-image contents, and would rebuild the kernels three times per
+      # run for no added coverage. The kernels have their own job below.
+      OMLX_WITH_CUSTOM_KERNEL: "0"
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -37,4 +47,62 @@ jobs:
           python -m pip install pytest pytest-asyncio
 
       - name: Run unit tests
+        run: python -m pytest tests/ -m "not slow and not integration"
+
+  kernels:
+    # Native custom kernels are opt-out, so they need automated cover or the
+    # default rots. Both images can build them and expose a real Metal GPU, so
+    # this runs correctness tests and not merely build-time checks.
+    #
+    # The two runners differ in a way that matters: macos-15 carries Xcode 16,
+    # which bundles the Metal compiler, while macos-26 carries Xcode 26, where
+    # it is a separately downloaded component (preinstalled on that image).
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # 3.11 matches the venvstacks runtime the macOS app bundle ships, so the
+      # extensions built here carry the ABI tag that bundle can load.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Verify the Metal compiler is usable
+        # `xcrun --find metal` resolving proves nothing since Xcode 26: the
+        # tool resolves while invoking it fails without the toolchain
+        # component. Fail here, with a clear reason, rather than midway
+        # through a build.
+        run: xcrun metal --version
+
+      - name: Install with native kernels
+        run: |
+          python -m pip install --upgrade pip
+          OMLX_WITH_CUSTOM_KERNEL=1 python -m pip install -e ".[mcp]"
+          python -m pip install pytest pytest-asyncio
+
+      - name: Assert every kernel loaded
+        # Without this the job would pass while silently exercising the
+        # fallback paths -- the exact failure this policy exists to prevent.
+        # A wrong-ABI or unbuilt extension is invisible, not loud.
+        run: |
+          python - <<'PY'
+          import sys
+          from omlx.custom_kernels import native_kernel_status
+          status = native_kernel_status()
+          for name, info in status.items():
+              print(f"{name:16} available={info['available']}  {info.get('import_error', '')}")
+          missing = sorted(n for n, i in status.items() if not i["available"])
+          if missing:
+              sys.exit("kernels did not load: " + ", ".join(missing))
+          PY
+
+      - name: Run unit tests with kernels active
         run: python -m pytest tests/ -m "not slow and not integration"
