@@ -67,10 +67,10 @@ brew update && brew upgrade omlx
 
 # Run as a background service (auto-restarts on crash)
 omlx start
-
-# Optional: MCP (Model Context Protocol) support
-/opt/homebrew/opt/omlx/libexec/bin/pip install mcp
 ```
+
+MCP (Model Context Protocol) support is included; enable it by pointing
+`OMLX_MCP_CONFIG` or `--mcp-config` at a config file (see `mcp.example.json`).
 
 Optional GLM-5.2 / MiniMax M3 native custom kernels currently require a HEAD build:
 
@@ -83,8 +83,7 @@ brew install jundot/omlx/omlx --HEAD --with-custom-kernel
 ```bash
 git clone https://github.com/jundot/omlx.git
 cd omlx
-pip install -e .          # Core only
-pip install -e ".[mcp]"   # With MCP (Model Context Protocol) support
+pip install -e .          # Includes MCP (Model Context Protocol) support
 
 # The GLM-5.2 / MiniMax M3 / Qwen3.5 native custom kernels are built
 # automatically when a working Metal compiler is present -- see note below.
@@ -96,8 +95,7 @@ Or with [uv](https://docs.astral.sh/uv/), which provisions a matching interprete
 and virtualenv for you:
 
 ```bash
-uv sync                            # Core only (with custom kernels if Metal is available)
-uv sync --extra mcp                # With MCP support
+uv sync                            # Everything, with custom kernels if Metal is available
 OMLX_WITH_CUSTOM_KERNEL=0 uv sync  # Without native custom kernels
 
 uv run omlx --help                 # Run without activating the venv

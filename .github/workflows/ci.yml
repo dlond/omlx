@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[mcp]"
+          python -m pip install -e .
           python -m pip install pytest pytest-asyncio
 
       - name: Run unit tests
@@ -85,7 +85,7 @@ jobs:
       - name: Install with native kernels
         run: |
           python -m pip install --upgrade pip
-          OMLX_WITH_CUSTOM_KERNEL=1 python -m pip install -e ".[mcp]"
+          OMLX_WITH_CUSTOM_KERNEL=1 python -m pip install -e .
           python -m pip install pytest pytest-asyncio
 
       - name: Assert every kernel loaded
