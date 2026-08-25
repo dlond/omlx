@@ -133,7 +133,15 @@ def test_module_entry_api_key_setup_end_to_end(tmp_path):
     )
     base = f"http://127.0.0.1:{port}"
     try:
-        deadline = time.monotonic() + 60
+        # Startup is dominated by importing the stack (mlx, transformers,
+        # mlx-vlm, onnxruntime, opencv), which is disk- and CPU-bound. A cold
+        # GitHub-hosted macOS runner measured 73s, so the previous 60s budget
+        # failed there while passing locally -- a timeout, not a hang. Keep it
+        # generous: this guards against a server that never starts, and the
+        # loop exits as soon as /health answers, so a higher ceiling costs
+        # nothing on a fast machine.
+        startup_budget = 240
+        deadline = time.monotonic() + startup_budget
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 pytest.fail(f"server exited early:\n{proc.stdout.read()}")
@@ -143,7 +151,9 @@ def test_module_entry_api_key_setup_end_to_end(tmp_path):
             except (urllib.error.URLError, OSError):
                 time.sleep(0.25)
         else:
-            pytest.fail("server did not become healthy within 60s")
+            pytest.fail(
+                f"server did not become healthy within {startup_budget}s"
+            )
 
         req = urllib.request.Request(
             f"{base}/admin/api/setup-api-key",
