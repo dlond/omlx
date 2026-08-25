@@ -36,20 +36,19 @@
 
         echo "oMLX dev shell — uv $(uv --version | cut -d' ' -f2), $(xcodebuild -version 2>/dev/null | head -1)"
 
-        # Build the native kernels by default: they are what the shipped app
-        # uses, and the fallback paths are far slower. Gate on the compiler
-        # actually running rather than on `xcrun --find metal` — since Xcode 26
-        # the tool resolves even when the separately downloaded MetalToolchain
-        # component is absent, so a find-based check would enable a build that
-        # always dies at the Metal step. With no usable compiler, fall back to
-        # upstream's default of leaving OMLX_WITH_CUSTOM_KERNEL unset.
+        # Deliberately does NOT set OMLX_WITH_CUSTOM_KERNEL. Whether the native
+        # kernels get built is project policy, and nix is optional tooling — if
+        # the policy lived here, the same command would produce different
+        # artifacts depending on whether the caller happened to use this shell.
+        # setup.py and apps/omlx-mac/Scripts/build.sh own that decision, so it
+        # applies to everyone. This shell only undoes nix-specific interference
+        # (the SDK variables above), and reports whether Metal is usable so the
+        # outcome is visible on entry.
         if xcrun metal --version >/dev/null 2>&1; then
-          export OMLX_WITH_CUSTOM_KERNEL=1
-          echo "  custom kernels: ON  (OMLX_WITH_CUSTOM_KERNEL=1)"
+          echo "  metal: available — custom kernels will be built by default"
         else
-          unset OMLX_WITH_CUSTOM_KERNEL
-          echo "  custom kernels: OFF — no working Metal compiler; enable with"
-          echo "                  sudo xcodebuild -downloadComponent MetalToolchain"
+          echo "  metal: UNAVAILABLE — builds will skip the custom kernels; enable with"
+          echo "         sudo xcodebuild -downloadComponent MetalToolchain"
         fi
 
         echo "  uv sync --dev && uv run pytest -m 'not slow'"
