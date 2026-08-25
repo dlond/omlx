@@ -218,6 +218,12 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "venvstacks>=0.7.0",
+    # nanobind is declared in [build-system].requires, which covers isolated
+    # builds. apps/omlx-mac/Scripts/build.sh runs setup.py build_ext without
+    # isolation, so it must also be importable from the dev environment or
+    # every custom-kernel build stops on a missing import. Keep this pin in
+    # step with [build-system].requires.
+    "nanobind==2.13.0",
     # The torch-stub smoke test (tests/test_torch_stub.py) gates
     # xgrammar / tvm-ffi version bumps. It skips when these aren't
     # importable, which silently hides regressions — install no-deps
@@ -241,6 +247,12 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "venvstacks>=0.7.0",
+    # nanobind is declared in [build-system].requires, which covers isolated
+    # builds. apps/omlx-mac/Scripts/build.sh runs setup.py build_ext without
+    # isolation, so it must also be importable from the dev environment or
+    # every custom-kernel build stops on a missing import. Keep this pin in
+    # step with [build-system].requires.
+    "nanobind==2.13.0",
     "xgrammar==0.2.3",
     "apache-tvm-ffi==0.1.11",
 ]
