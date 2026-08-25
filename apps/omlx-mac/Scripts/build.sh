@@ -124,11 +124,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PROJECT_DIR/../.." && pwd)"
 PACKAGING_DIR="$REPO_ROOT/packaging"
-CUSTOM_KERNEL_DIRS=(
-    "$REPO_ROOT/omlx/custom_kernels/glm_moe_dsa"
-    "$REPO_ROOT/omlx/custom_kernels/minimax_m3"
-    "$REPO_ROOT/omlx/custom_kernels/qwen35_prefill"
-)
+# Each custom_kernels/<pkg>/csrc/CMakeLists.txt is one CMakeExtension in
+# setup.py, so derive the list rather than duplicating it. The hand-kept copy
+# had silently dropped bonsai, leaving its artifacts uncleaned, its deployment
+# target unvalidated and its ABI unchecked.
+CUSTOM_KERNEL_DIRS=()
+for _ck_cmakelists in "$REPO_ROOT"/omlx/custom_kernels/*/csrc/CMakeLists.txt; do
+    [ -e "$_ck_cmakelists" ] || continue
+    CUSTOM_KERNEL_DIRS+=("$(dirname "$(dirname "$_ck_cmakelists")")")
+done
+unset _ck_cmakelists
+if [ ${#CUSTOM_KERNEL_DIRS[@]} -eq 0 ]; then
+    # Every later loop expands this array, and bash 3.2 (the system bash on
+    # macOS) treats expanding an empty one under `set -u` as an unbound
+    # variable. Fail with something readable instead.
+    echo "error: no custom kernel sources found under $REPO_ROOT/omlx/custom_kernels/*/csrc" >&2
+    exit 2
+fi
 # OMLX_EXPORT_DIR overrides the venvstacks export tree we copy Python
 # layers from. Release builds use this to point at a per-target export
 # copy with platform-specific mlx-metal wheels swapped in.
@@ -254,10 +266,9 @@ _clean_custom_kernel_build_artifacts() {
     done
 
     if [ -d "$REPO_ROOT/build" ]; then
-        for ext_name in \
-            "omlx.custom_kernels.glm_moe_dsa._ext" \
-            "omlx.custom_kernels.minimax_m3._ext" \
-            "omlx.custom_kernels.qwen35_prefill._ext"; do
+        local ext_name
+        for dir in "${CUSTOM_KERNEL_DIRS[@]}"; do
+            ext_name="omlx.custom_kernels.$(basename "$dir")._ext"
             find "$REPO_ROOT/build" \
                 -type d \
                 -name "$ext_name" \
@@ -323,10 +334,15 @@ _check_custom_kernel_abi() {
     # exercise the array type caster once. A metallib existence check cannot
     # catch a nanobind ABI mismatch — only an actual call does.
     local custom_kernel_pythonpath="$1"
+    local dir
+    local names=()
+    for dir in "${CUSTOM_KERNEL_DIRS[@]}"; do
+        names+=("$(basename "$dir")")
+    done
     log "Verifying custom kernel ABI against the bundled MLX…"
     (
         cd "$REPO_ROOT"
-        PYTHONPATH="$custom_kernel_pythonpath" "$PYTHON_BIN" - <<'PYEOF'
+        PYTHONPATH="$custom_kernel_pythonpath" "$PYTHON_BIN" - "${names[@]}" <<'PYEOF'
 import importlib.util
 import pathlib
 import sys
@@ -334,7 +350,7 @@ import sys
 import mlx.core as mx
 
 failures = []
-for name in ("glm_moe_dsa", "minimax_m3", "qwen35_prefill"):
+for name in sys.argv[1:]:
     ext_dir = pathlib.Path("omlx/custom_kernels") / name
     so = next(ext_dir.glob("_ext.*.so"), None)
     if so is None:
