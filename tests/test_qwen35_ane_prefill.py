@@ -2403,6 +2403,13 @@ def test_enable_warms_the_cpu_sharing_path(monkeypatch):
     """CPU-shared modules get one dummy dispatch at load, not at first use."""
     monkeypatch.setattr(fast, "qwen35_ane_available", lambda: True)
     monkeypatch.setattr(fast, "has_symbol", lambda name: True)
+    # Without this the True-for-everything has_symbol above routes bank staging
+    # into the real ANE compiler, which aborts on hosts with no ANE. The caller
+    # swallows that into a bare `return 0`, so the test failed as 0 != 2 with no
+    # indication why. Every other enable test already forces this path.
+    monkeypatch.setattr(
+        fast, "qwen35_ane_linear_bank_builder", _no_bank_builder
+    )
     monkeypatch.setattr(ane_patch, "_install_dispatch", lambda: True)
     monkeypatch.setattr(ane_patch, "_eligible_pair", lambda mlp: True)
     monkeypatch.setattr(
